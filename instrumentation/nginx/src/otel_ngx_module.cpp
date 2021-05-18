@@ -21,8 +21,11 @@ extern ngx_module_t otel_ngx_module;
 #include <opentelemetry/exporters/otlp/otlp_exporter.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <opentelemetry/sdk/trace/batch_span_processor.h>
+#include <opentelemetry/sdk/trace/id_generator.h>
 #include <opentelemetry/sdk/trace/simple_processor.h>
 #include <opentelemetry/sdk/trace/tracer_provider.h>
+#include <opentelemetry/sdk/trace/samplers/parent.h>
+#include <opentelemetry/sdk/trace/samplers/trace_id_ratio.h>
 #include <opentelemetry/trace/provider.h>
 
 namespace trace = opentelemetry::trace;
@@ -646,11 +649,15 @@ static ngx_int_t OtelNgxStart(ngx_cycle_t* cycle) {
   }
 
   auto processor = CreateProcessor(agentConf, std::move(exporter));
+  auto ratioSampler = std::make_shared<opentelemetry::sdk::trace::TraceIdRatioBasedSampler>(0.01);
+  auto sampler = std::unique_ptr<sdktrace::ParentBasedSampler>(
+    new sdktrace::ParentBasedSampler(ratioSampler));
   auto provider = nostd::shared_ptr<opentelemetry::trace::TracerProvider>(new sdktrace::TracerProvider(
     std::move(processor),
-    opentelemetry::sdk::resource::Resource::Create({{"service.name", agentConf->service.name}})));
+    opentelemetry::sdk::resource::Resource::Create({{"service.name", agentConf->service.name}}),
+    std::move(sampler)));
 
-  opentelemetry::trace::Provider::SetTracerProvider(provider);
+  opentelemetry::trace::Provider::SetTracerProvider(std::move(provider));
 
   return NGX_OK;
 }
